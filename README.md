@@ -6,10 +6,10 @@
 
 ## Architecture Overview
 
-```
+
 <img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/a710fd02-a57e-463f-b06b-e284d3f89ec6" />
 
-```
+
 
 ## Microservices
 
