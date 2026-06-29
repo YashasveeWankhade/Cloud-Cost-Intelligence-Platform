@@ -164,22 +164,8 @@ The project runs **Tailwind CSS v4** alongside **Material UI 5**:
 
 ## Kafka Event Flow
 
-```
-Cost Service                Analytics Service         Recommendation Service
-     │                            │                           │
-     │──── CostDataCollected ────►│                           │
-     │          cost-data         │                           │
-     │                            │──── ANOMALY_DETECTED ────►│
-     │                            │      anomaly-events       │
-     │                            │                           │──── RECOMMENDATION_CREATED
-     │                            │                           │      recommendation-events
-     │                            │                           │
-     │                       Notification Service             │
-     │                            │◄──── HIGH/CRITICAL ───────┘
-     │                            │      anomaly-events
-     │                            │
-     │                            │──── SSE broadcast ───────► Browser
-```
+<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/5bb4970c-8729-4573-95fc-ffca4e4b0d9c" />
+
 
 ### Kafka Topics
 | Topic | Producer | Consumer | Event Types |
