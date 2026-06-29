@@ -1,0 +1,213 @@
+# Copy .env.example to .env and fill in secrets before running.
+# docker compose will auto-load .env from the project root.
+
+services:
+  # ─── Infrastructure ────────────────────────────────────────────────────────
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks: [cloud-net]
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on: [zookeeper]
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    networks: [cloud-net]
+
+  auth-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+    networks: [cloud-net]
+
+  cost-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: cost_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - cost-db-data:/var/lib/postgresql/data
+    networks: [cloud-net]
+
+  analytics-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: analytics_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - analytics-db-data:/var/lib/postgresql/data
+    networks: [cloud-net]
+
+  recommendation-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: recommendation_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - recommendation-db-data:/var/lib/postgresql/data
+    networks: [cloud-net]
+
+  notification-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: notification_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5436:5432"
+    volumes:
+      - notification-db-data:/var/lib/postgresql/data
+    networks: [cloud-net]
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks: [cloud-net]
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning
+      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    networks: [cloud-net]
+
+  # ─── Application Services ──────────────────────────────────────────────────
+
+  auth-service:
+    build: ./auth-service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/auth_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      JWT_SECRET: ${JWT_SECRET:-insecure-default-change-in-dotenv}
+      JWT_EXPIRATION: 86400000
+      JWT_REFRESH_EXPIRATION: 604800000
+    depends_on: [auth-db]
+    networks: [cloud-net]
+
+  cost-service:
+    build: ./cost-service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://cost-db:5432/cost_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      CLOUD_PROVIDER: ${CLOUD_PROVIDER:-mock}
+    depends_on: [cost-db, kafka]
+    networks: [cloud-net]
+
+  analytics-service:
+    build: ./analytics-service
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://analytics-db:5432/analytics_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on: [analytics-db, kafka]
+    networks: [cloud-net]
+
+  recommendation-service:
+    build: ./recommendation-service
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://recommendation-db:5432/recommendation_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-demo-key}
+    depends_on: [recommendation-db, kafka]
+    networks: [cloud-net]
+
+  notification-service:
+    build: ./notification-service
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://notification-db:5432/notification_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-noreply@cloudcost.io}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+    depends_on: [notification-db, kafka]
+    networks: [cloud-net]
+
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8086:8080"
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8081
+      COST_SERVICE_URL: http://cost-service:8082
+      ANALYTICS_SERVICE_URL: http://analytics-service:8083
+      RECOMMENDATION_SERVICE_URL: http://recommendation-service:8084
+      NOTIFICATION_SERVICE_URL: http://notification-service:8085
+      JWT_SECRET: ${JWT_SECRET:-insecure-default-change-in-dotenv}
+    depends_on: [auth-service, cost-service, analytics-service, recommendation-service, notification-service]
+    networks: [cloud-net]
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8086
+    depends_on: [api-gateway]
+    networks: [cloud-net]
+
+volumes:
+  auth-db-data:
+  cost-db-data:
+  analytics-db-data:
+  recommendation-db-data:
+  notification-db-data:
+  grafana-data:
+
+networks:
+  cloud-net:
+    driver: bridge
